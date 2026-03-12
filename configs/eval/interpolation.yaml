@@ -1,0 +1,19 @@
+data_root: ./data
+
+path:
+  type: linear        
+  num_points: 21
+  bn_recalib_batches: 20
+  pivots: []   
+
+evaluation:
+  batch_size: 256
+  bn_batch_size: 256
+  split: val
+  val_size: 5000
+  split_seed: 42
+
+data:
+  num_workers: 0
+  pin_memory: true
+
