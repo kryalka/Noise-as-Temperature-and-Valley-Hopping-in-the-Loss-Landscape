@@ -1,0 +1,31 @@
+data_root: ./data
+
+path:
+  num_points: 21
+  bn_recalib_batches: 20
+  observed:
+    selection: all
+    milestone_epochs: []
+    epochs: []
+
+barrier:
+  definition: max_minus_linear_baseline
+  thresholds:
+    - 0.005
+    - 0.01
+    - 0.05
+    - 0.1
+    - 0.2
+    - 0.35
+    - 0.5
+
+evaluation:
+  batch_size: 256
+  bn_batch_size: 256
+  split: test
+  val_size: 5000
+  split_seed: 42
+
+data:
+  num_workers: 0
+  pin_memory: true
