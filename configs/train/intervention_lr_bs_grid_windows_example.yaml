@@ -1,0 +1,29 @@
+base_config: configs/train/windowed_intervention.yaml
+out_root: outputs/runs_lr_bs_grid_intervention_windows_example
+
+seeds:
+  - 3
+
+learning_rates:
+  - 0.05
+
+batch_sizes:
+  - 64
+
+config_overrides:
+  training:
+    epochs: 90
+
+intervention_windows:
+  - "12:19"
+  - name: late_long
+    start_epoch: 41
+    end_epoch: 58
+  - name: short_hot
+    start_epoch: 73
+    end_epoch: 75
+    batch_size: 32
+
+intervention_lr_multipliers:
+  - 0.85
+  - 1.4
