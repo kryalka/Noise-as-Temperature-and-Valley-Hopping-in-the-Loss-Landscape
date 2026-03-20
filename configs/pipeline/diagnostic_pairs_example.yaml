@@ -1,0 +1,10 @@
+inputs:
+  pairs_csv: outputs/summaries/trajectory_pairs.csv
+
+diagnostics:
+  compare_config: configs/eval/path_compare_test.yaml
+  geometry_config: configs/eval/geometry.yaml
+  reuse_existing: true
+
+outputs:
+  out_root: outputs/diagnostics/default
