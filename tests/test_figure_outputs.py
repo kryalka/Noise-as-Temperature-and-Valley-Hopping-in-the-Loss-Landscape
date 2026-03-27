@@ -264,3 +264,22 @@ def test_run_figure_outputs_smoke(tmp_path: Path) -> None:
     assert (out_dir / "compare_paths_summary__cifar10.svg").exists()
     assert (out_dir / "intervention_window_summary__cifar10.svg").exists()
     assert (out_dir / "geometry_transition_summary__cifar10.svg").exists()
+
+
+
+def test_run_figure_outputs_handles_partial_inputs(tmp_path: Path) -> None:
+    final_outputs_root = tmp_path / "final_outputs"
+    out_dir = tmp_path / "figure_outputs"
+
+    _write_csv(
+        final_outputs_root / "baseline_regime_table.csv",
+        [name for name in BASELINE_REGIME_TABLE_COLUMNS if name != "mean_final_val_acc"],
+        [],
+    )
+
+    manifest_path = run_figure_outputs(final_outputs_root=str(final_outputs_root), out_dir=str(out_dir))
+
+    assert manifest_path.exists()
+    regime_summary = json.loads((out_dir / "regime_heatmaps_summary.json").read_text(encoding="utf-8"))
+    assert "missing required columns" in regime_summary["input_issues"][0].lower()
+    assert (out_dir / "regime_heatmap__empty__BarrierGap.svg").exists()
