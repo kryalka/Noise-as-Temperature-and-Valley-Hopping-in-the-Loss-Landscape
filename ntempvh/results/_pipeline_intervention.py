@@ -143,3 +143,142 @@ def aggregate_intervention_runs(
     }
     save_json(out_json, summary)
     return {"rows": rows, "csv": out_csv, "summary_json": out_json, "summary": summary}
+
+
+
+def aggregate_intervention_geometry(
+    intervention_geometry_summary_csv: str | Path,
+    out_dir: str | Path,
+) -> dict[str, Any]:
+    source_csv = Path(intervention_geometry_summary_csv)
+    out_dir = ensure_dir(out_dir)
+    role_csv = out_dir / "intervention_geometry_roles_results.csv"
+    role_json = out_dir / "intervention_geometry_roles_results_summary.json"
+    run_csv = out_dir / "intervention_geometry_runs_results.csv"
+    run_json = out_dir / "intervention_geometry_runs_results_summary.json"
+
+    role_rows: list[dict[str, Any]] = []
+    input_issues: list[str] = []
+    duplicate_role_examples: list[dict[str, str]] = []
+    if not source_csv.exists():
+        input_issues.append(f"Intervention geometry summary not found: {source_csv}")
+    else:
+        with open(source_csv, "r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            fieldnames = reader.fieldnames or []
+            missing_cols = [col for col in INTERVENTION_GEOMETRY_ROLE_INPUT_COLUMNS if col not in fieldnames]
+            if missing_cols:
+                input_issues.append(f"Intervention geometry summary is missing required columns: {missing_cols}")
+            else:
+                for row in reader:
+                    role_rows.append({col: row.get(col, "") for col in INTERVENTION_GEOMETRY_ROLE_INPUT_COLUMNS})
+
+    write_csv(role_csv, list(INTERVENTION_GEOMETRY_ROLE_INPUT_COLUMNS), role_rows)
+    save_json(role_json, {
+        "input_csv": str(source_csv),
+        "out_csv": str(role_csv),
+        "num_rows": int(len(role_rows)),
+        "num_ok": int(sum(1 for row in role_rows if row.get("status") == "ok")),
+        "num_failed": int(sum(1 for row in role_rows if row.get("status") == "failed")),
+        "num_error": int(sum(1 for row in role_rows if row.get("status") == "error")),
+        "invalid_examples": [],
+        "input_issues": input_issues,
+    })
+
+    grouped: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in role_rows:
+        grouped.setdefault((str(row.get("run_dir", "")), str(row.get("run_name", ""))), []).append(row)
+
+    run_rows: list[dict[str, Any]] = []
+    for rows in (grouped[key] for key in sorted(grouped)):
+        role_map: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            role = str(row.get("checkpoint_role", ""))
+            if role in role_map:
+                duplicate_role_examples.append({"run_dir": str(row.get("run_dir", "")), "run_name": str(row.get("run_name", "")), "checkpoint_role": role})
+                continue
+            role_map[role] = row
+
+        sample = rows[0]
+        missing_roles = [role for role in ("pre", "post", "final") if role not in role_map]
+        reasons = [f"Missing roles: {missing_roles}"] if missing_roles else []
+        for role_name in ("pre", "post", "final"):
+            role_row = role_map.get(role_name)
+            if role_row is not None and str(role_row.get("status", "")) not in {"", "ok"}:
+                reasons.append(f"{role_name}:{role_row.get('status', '')}:{role_row.get('reason', '')}")
+
+        role_value = lambda role_name, field: role_map.get(role_name, {}).get(field)  
+        pre_kappa = safe_float(role_value("pre", "kappa_tr"))
+        post_kappa = safe_float(role_value("post", "kappa_tr"))
+        final_kappa = safe_float(role_value("final", "kappa_tr"))
+        run_rows.append({
+            "run_dir": str(sample.get("run_dir", "")),
+            "run_name": str(sample.get("run_name", "")),
+            "seed": safe_int(sample.get("seed")),
+            "learning_rate": safe_float(sample.get("learning_rate")),
+            "batch_size": safe_int(sample.get("batch_size")),
+            "intervention_start_epoch": safe_int(sample.get("intervention_start_epoch")),
+            "intervention_end_epoch": safe_int(sample.get("intervention_end_epoch")),
+            "intervention_lr_multiplier": safe_float(sample.get("intervention_lr_multiplier")),
+            "intervention_batch_size": safe_int(sample.get("intervention_batch_size")),
+            "num_roles_present": int(len(role_map)),
+            "status": "ok" if not reasons and len(role_map) == 3 else "partial",
+            "reason": " | ".join(reasons),
+            "pre_status": str(role_value("pre", "status") or ""),
+            "pre_reason": str(role_value("pre", "reason") or ""),
+            "pre_checkpoint_path": str(role_value("pre", "checkpoint_path") or ""),
+            "pre_checkpoint_epoch": safe_int(role_value("pre", "checkpoint_epoch")),
+            "pre_geometry_json": str(role_value("pre", "geometry_json") or ""),
+            "pre_kappa_tr": pre_kappa,
+            "pre_kappa_tr_std": safe_float(role_value("pre", "kappa_tr_std")),
+            "pre_sigma_kappa": _coalesce_numeric(role_value("pre", "sigma_kappa"), role_value("pre", "kappa_tr_std")),
+            "pre_anisotropy": _coalesce_numeric(role_value("pre", "anisotropy"), role_value("pre", "sigma_kappa"), role_value("pre", "kappa_tr_std")),
+            "pre_base_loss": safe_float(role_value("pre", "base_loss")),
+            "pre_base_acc": safe_float(role_value("pre", "base_acc")),
+            "post_status": str(role_value("post", "status") or ""),
+            "post_reason": str(role_value("post", "reason") or ""),
+            "post_checkpoint_path": str(role_value("post", "checkpoint_path") or ""),
+            "post_checkpoint_epoch": safe_int(role_value("post", "checkpoint_epoch")),
+            "post_geometry_json": str(role_value("post", "geometry_json") or ""),
+            "post_kappa_tr": post_kappa,
+            "post_kappa_tr_std": safe_float(role_value("post", "kappa_tr_std")),
+            "post_sigma_kappa": _coalesce_numeric(role_value("post", "sigma_kappa"), role_value("post", "kappa_tr_std")),
+            "post_anisotropy": _coalesce_numeric(role_value("post", "anisotropy"), role_value("post", "sigma_kappa"), role_value("post", "kappa_tr_std")),
+            "post_base_loss": safe_float(role_value("post", "base_loss")),
+            "post_base_acc": safe_float(role_value("post", "base_acc")),
+            "final_status": str(role_value("final", "status") or ""),
+            "final_reason": str(role_value("final", "reason") or ""),
+            "final_checkpoint_path": str(role_value("final", "checkpoint_path") or ""),
+            "final_checkpoint_epoch": safe_int(role_value("final", "checkpoint_epoch")),
+            "final_geometry_json": str(role_value("final", "geometry_json") or ""),
+            "final_kappa_tr": final_kappa,
+            "final_kappa_tr_std": safe_float(role_value("final", "kappa_tr_std")),
+            "final_sigma_kappa": _coalesce_numeric(role_value("final", "sigma_kappa"), role_value("final", "kappa_tr_std")),
+            "final_anisotropy": _coalesce_numeric(role_value("final", "anisotropy"), role_value("final", "sigma_kappa"), role_value("final", "kappa_tr_std")),
+            "final_base_loss": safe_float(role_value("final", "base_loss")),
+            "final_base_acc": safe_float(role_value("final", "base_acc")),
+            "delta_kappa_post_minus_pre": None if pre_kappa is None or post_kappa is None else float(post_kappa - pre_kappa),
+            "delta_kappa_final_minus_pre": None if pre_kappa is None or final_kappa is None else float(final_kappa - pre_kappa),
+        })
+
+    write_csv(run_csv, INTERVENTION_GEOMETRY_RUN_RESULTS_COLUMNS, run_rows)
+    run_summary = {
+        "input_csv": str(source_csv),
+        "out_csv": str(run_csv),
+        "num_rows": int(len(run_rows)),
+        "num_partial_rows": int(sum(1 for row in run_rows if row["status"] != "ok")),
+        "num_duplicate_roles": int(len(duplicate_role_examples)),
+        "duplicate_role_examples": duplicate_role_examples[:20],
+        "input_issues": input_issues,
+    }
+    save_json(run_json, run_summary)
+    return {
+        "role_rows": role_rows,
+        "run_rows": run_rows,
+        "role_csv": role_csv,
+        "role_summary_json": role_json,
+        "run_csv": run_csv,
+        "run_summary_json": run_json,
+        "role_summary": {"input_issues": input_issues},
+        "run_summary": run_summary,
+    }
