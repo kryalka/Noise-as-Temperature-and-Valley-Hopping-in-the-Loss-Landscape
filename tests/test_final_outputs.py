@@ -309,3 +309,36 @@ def test_run_final_outputs_smoke(tmp_path: Path) -> None:
     assert geometry_rows[0]["mean_final_base_acc"] == "0.85"
     assert geometry_rows[0]["mean_final_sigma_kappa"] == "0.1"
     assert geometry_rows[0]["mean_final_anisotropy"] == "0.1"
+
+
+
+def test_run_final_outputs_handles_partial_and_missing_inputs(tmp_path: Path) -> None:
+    results_root = tmp_path / "results_pipeline"
+    out_dir = tmp_path / "final_outputs"
+
+    _write_csv(
+        results_root / "compare_paths_results.csv",
+        COMPARE_RESULTS_COLUMNS[:-1],
+        [],
+    )
+    _write_csv(
+        results_root / "intervention_runs_results.csv",
+        INTERVENTION_RUN_RESULTS_COLUMNS,
+        [],
+    )
+    _write_csv(
+        results_root / "intervention_geometry_runs_results.csv",
+        INTERVENTION_GEOMETRY_RUN_RESULTS_COLUMNS,
+        [],
+    )
+
+    manifest_path = run_final_outputs(results_root=str(results_root), out_dir=str(out_dir))
+
+    assert manifest_path.exists()
+    compare_summary = json.loads((out_dir / "compare_paths_final_summary.json").read_text(encoding="utf-8"))
+    assert "missing required columns" in compare_summary["input_issues"][0].lower()
+
+    baseline_summary = json.loads((out_dir / "baseline_regime_maps.json").read_text(encoding="utf-8"))
+    assert "missing required input csv" in baseline_summary["input_issues"][0].lower()
+
+    assert (out_dir / "compare_paths_final_summary.csv").read_text(encoding="utf-8").strip() == ",".join(COMPARE_SECTION_SUMMARY_COLUMNS)
