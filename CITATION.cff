@@ -1,0 +1,15 @@
+cff-version: 1.2.0
+message: "If you use this repository, please cite it as below"
+title: "Noise as Temperature and Valley Hopping in the Loss Landscape"
+type: software
+version: "0.1.0"
+license: "MIT"
+repository-code: "https://github.com/kryalka/Noise-as-Temperature-and-Valley-Hopping-in-the-Loss-Landscape"
+url: "https://github.com/kryalka/Noise-as-Temperature-and-Valley-Hopping-in-the-Loss-Landscape"
+abstract: "Toolkit for checkpoint trajectory diagnostics, path-based loss-landscape analysis, interventions, geometry estimates, and report-oriented aggregation"
+keywords:
+  - deep learning
+  - loss landscape
+  - interpolation
+  - barriers
+  - checkpoint diagnostics
