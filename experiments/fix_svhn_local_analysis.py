@@ -575,3 +575,176 @@ def compute_profile_deviation_metrics(
         "devL1": float(np.mean(abs_diff)),
         "devLinf": float(np.max(abs_diff)),
     }
+
+
+def analyze_window(
+    *,
+    window: tuple[int, int],
+    epoch_to_path: dict[int, Path],
+    bn_loader: BatchTensorLoader,
+    eval_loader: BatchTensorLoader,
+    profiles_dir: Path,
+    cfg: AnalysisConfig,
+    device: torch.device,
+) -> tuple[dict[str, Any], pd.DataFrame, pd.DataFrame]:
+    start_epoch, end_epoch = int(window[0]), int(window[1])
+    if end_epoch <= start_epoch:
+        raise ValueError(f"Window must satisfy end > start, got {window}")
+
+    required_epochs = list(range(start_epoch, end_epoch + 1))
+    missing_epochs = [epoch for epoch in required_epochs if epoch not in epoch_to_path]
+    if missing_epochs:
+        raise FileNotFoundError(f"Missing checkpoints for window {window}: {missing_epochs}")
+
+    observed_records = [load_checkpoint_record(epoch_to_path[epoch]) for epoch in required_epochs]
+    chord_records = [observed_records[0], observed_records[-1]]
+    breakpoints, segment_lengths, chord_length, observed_length = build_observed_breakpoints(
+        observed_records
+    )
+
+    window_label = f"{start_epoch}->{end_epoch}"
+    chord_df = evaluate_profile(
+        path_type="linear",
+        records=chord_records,
+        breakpoints=None,
+        bn_loader=bn_loader,
+        eval_loader=eval_loader,
+        cfg=cfg,
+        device=device,
+        window_label=window_label,
+    )
+    observed_df = evaluate_profile(
+        path_type="observed",
+        records=observed_records,
+        breakpoints=breakpoints,
+        bn_loader=bn_loader,
+        eval_loader=eval_loader,
+        cfg=cfg,
+        device=device,
+        window_label=window_label,
+    )
+
+    chord_shape = compute_profile_shape_metrics(chord_df)
+    observed_shape = compute_profile_shape_metrics(observed_df)
+    deviation_metrics = compute_profile_deviation_metrics(chord_df, observed_df)
+    length_ratio = float(observed_length / max(chord_length, 1e-12))
+
+    chord_path = profiles_dir / f"window_{start_epoch:03d}_{end_epoch:03d}__chord.csv"
+    observed_path = profiles_dir / f"window_{start_epoch:03d}_{end_epoch:03d}__observed.csv"
+    chord_df.to_csv(chord_path, index=False)
+    observed_df.to_csv(observed_path, index=False)
+
+    result = {
+        "window": window_label,
+        "epoch_start": start_epoch,
+        "epoch_end": end_epoch,
+        "Peak_chord": float(chord_shape["peak"]),
+        "Peak_obs": float(observed_shape["peak"]),
+        "BarrierGap": float(observed_shape["peak"] - chord_shape["peak"]),
+        "Pit_chord": float(chord_shape["pit_signed"]),
+        "Pit_chord_depth": float(chord_shape["pit_depth"]),
+        "Pit_obs": float(observed_shape["pit_signed"]),
+        "Pit_obs_depth": float(observed_shape["pit_depth"]),
+        "devL1": float(deviation_metrics["devL1"]),
+        "devLinf": float(deviation_metrics["devLinf"]),
+        "L_chord": float(chord_length),
+        "L_obs": float(observed_length),
+        "LengthRatio": float(length_ratio),
+        "LengthExcess": float(observed_length - chord_length),
+        "chord_peak_t": float(chord_shape["peak_t"]),
+        "observed_peak_t": float(observed_shape["peak_t"]),
+        "chord_pit_t": float(chord_shape["pit_t"]),
+        "observed_pit_t": float(observed_shape["pit_t"]),
+        "segment_lengths": [float(value) for value in segment_lengths],
+        "chord_profile_csv": str(chord_path.resolve()),
+        "observed_profile_csv": str(observed_path.resolve()),
+    }
+    return result, chord_df, observed_df
+
+
+def select_windows_for_plot(summary_df: pd.DataFrame, top_k: int) -> list[str]:
+    candidates = summary_df[
+        (summary_df["BarrierGap"] > 0.0) & (summary_df["Pit_chord"] < 0.0)
+    ].copy()
+    if candidates.empty:
+        candidates = summary_df.copy()
+    ranked = candidates.sort_values(["BarrierGap", "Pit_chord"], ascending=[False, True])
+    return ranked["window"].head(int(top_k)).tolist()
+
+
+def plot_selected_windows(
+    profile_store: dict[str, dict[str, pd.DataFrame]],
+    selected_windows: list[str],
+    plot_path: Path,
+    eval_split: str,
+) -> None:
+    if not selected_windows:
+        return
+
+    fig, axes = plt.subplots(1, len(selected_windows), figsize=(6 * len(selected_windows), 4))
+    if len(selected_windows) == 1:
+        axes = [axes]
+
+    for ax, window_label in zip(axes, selected_windows):
+        chord_df = profile_store[window_label]["chord"]
+        observed_df = profile_store[window_label]["observed"]
+        ax.plot(chord_df["t"], chord_df["loss"], label="chord", linewidth=2)
+        ax.plot(observed_df["t"], observed_df["loss"], label="observed", linewidth=2)
+        ax.set_title(window_label)
+        ax.set_xlabel("t")
+        ax.set_ylabel(f"{eval_split}_loss")
+        ax.grid(alpha=0.3)
+
+    axes[0].legend()
+    fig.tight_layout()
+    fig.savefig(plot_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+
+
+def parse_run_name(run_name: str) -> dict[str, Any]:
+    match = RUN_NAME_RE.match(run_name)
+    if match is None:
+        raise ValueError(f"Unsupported run name format: {run_name}")
+    return {
+        "seed": int(match.group("seed")),
+        "lr": float(match.group("lr")),
+        "bs": int(match.group("bs")),
+    }
+
+
+def normalize_summary_metadata(run_dir: Path) -> None:
+    run_name = run_dir.name
+    history_path = run_dir / "history.csv"
+    summary_path = run_dir / "summary.json"
+    latest_checkpoint = (run_dir / "latest_checkpoint.pt").resolve()
+
+    last_epoch = None
+    best_test_accuracy = None
+    if history_path.exists():
+        history = pd.read_csv(history_path)
+        if not history.empty:
+            last_epoch = int(history["epoch"].iloc[-1])
+            best_test_accuracy = float(history["test_accuracy"].max())
+
+    summary = {}
+    if summary_path.exists():
+        summary = json.loads(summary_path.read_text(encoding="utf-8"))
+
+    if last_epoch is None:
+        ckpts = list_epoch_checkpoints(run_dir / "checkpoints")
+        last_epoch = max(ckpts)
+
+    summary.update(
+        {
+            "experiment_name": run_name,
+            "last_epoch": int(last_epoch),
+            "best_test_accuracy": (
+                float(best_test_accuracy)
+                if best_test_accuracy is not None
+                else summary.get("best_test_accuracy")
+            ),
+            "latest_checkpoint": str(latest_checkpoint),
+            "run_dir": str(run_dir.resolve()),
+        }
+    )
+    summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
