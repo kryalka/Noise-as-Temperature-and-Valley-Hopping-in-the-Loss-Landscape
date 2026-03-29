@@ -334,3 +334,52 @@ def test_train_interpolation_barrier_pipeline_smoke(
     assert str(interp_csv) in barriers_csv.read_text(encoding="utf-8")
     assert "cfg_" in interp_csv.stem
     assert "cfg_" in barrier_json.stem
+
+
+
+def test_geometry_pipeline_artifact_smoke(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_tiny_pipeline_modules(monkeypatch)
+
+    seed = 11
+    run_name = _run_name(seed=seed, lr=0.2, bs=8)
+    ckpt_dir = tmp_path / "outputs" / "runs_lr_bs_grid" / run_name / "checkpoints"
+    ckpt_dir.mkdir(parents=True, exist_ok=True)
+
+    model = _make_easy_model(num_classes=10)
+    ckpt_path = ckpt_dir / "epoch_002.pt"
+    torch.save(
+        {
+            "model": "resnet18",
+            "dataset": "cifar10",
+            "seed": seed,
+            "epoch": 2,
+            "state_dict": model.state_dict(),
+        },
+        ckpt_path,
+    )
+
+    cfg_path = tmp_path / "geometry.yaml"
+    _write_geometry_cfg(cfg_path)
+    out_dir = tmp_path / "artifacts" / "geometry"
+
+    json_path = compute_geometry(str(ckpt_path), str(cfg_path), str(out_dir))
+
+    assert json_path.exists()
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+
+    assert payload["ckpt"] == str(ckpt_path)
+    assert payload["artifact"]["stem"] == json_path.stem
+    assert payload["artifact"]["checkpoint_tag"] in json_path.stem
+    assert payload["num_directions"] == 3
+    assert payload["eval_batch_size"] == 8
+    assert np.isfinite(float(payload["kappa_tr"]))
+    assert np.isfinite(float(payload["base"]["acc"]))
+
+    csv_path = out_dir / "geometries.csv"
+    assert csv_path.exists()
+    lines = csv_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(lines) >= 2
+    assert lines[-1].split(",")[0] == str(ckpt_path)
