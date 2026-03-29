@@ -314,3 +314,264 @@ def interp_state_dicts_by_breakpoints(
     width = max(right_t - left_t, 1e-12)
     local_t = (clipped_t - left_t) / width
     return lerp_state_dict(state_dicts[left_idx], state_dicts[left_idx + 1], float(local_t))
+
+
+@torch.no_grad()
+def recalibrate_bn_stats(
+    model: nn.Module,
+    loader: BatchTensorLoader | None,
+    device: torch.device,
+    num_batches: int,
+) -> None:
+    bn_layers = [
+        module for module in model.modules() if isinstance(module, nn.modules.batchnorm._BatchNorm)
+    ]
+    if not bn_layers or loader is None or num_batches <= 0:
+        return
+
+    was_training = model.training
+    saved_momenta: dict[nn.Module, float | None] = {}
+    model.eval()
+
+    for layer in bn_layers:
+        saved_momenta[layer] = layer.momentum
+        layer.reset_running_stats()
+        layer.momentum = None
+        layer.train()
+
+    batches_seen = 0
+    for images, _ in loader:
+        images = images.to(device, non_blocking=True)
+        _ = model(images)
+        batches_seen += 1
+        if batches_seen >= num_batches:
+            break
+
+    for layer in bn_layers:
+        layer.momentum = saved_momenta[layer]
+    model.train(was_training)
+
+
+@torch.inference_mode()
+def evaluate_loss_acc_loader(
+    model: nn.Module,
+    loader: BatchTensorLoader,
+    device: torch.device,
+) -> tuple[float, float]:
+    criterion_sum = nn.CrossEntropyLoss(reduction="sum")
+    model.eval()
+    loss_sum = 0.0
+    correct = 0
+    total_examples = 0
+
+    for images, targets in loader:
+        images = images.to(device, non_blocking=True)
+        targets = targets.to(device, non_blocking=True)
+        logits = model(images)
+        loss_sum += float(criterion_sum(logits, targets).item())
+        correct += int((logits.argmax(dim=1) == targets).sum().item())
+        total_examples += int(images.size(0))
+
+    return loss_sum / total_examples, correct / total_examples
+
+
+def build_analysis_loaders(
+    *,
+    data_root: Path,
+    cfg: AnalysisConfig,
+) -> tuple[BatchTensorLoader, BatchTensorLoader]:
+    train_images, train_labels = load_or_prepare_tensor_split(data_root=data_root, split="train")
+    test_images, test_labels = load_or_prepare_tensor_split(data_root=data_root, split="test")
+    num_samples = int(train_labels.shape[0])
+    if cfg.val_size < 0 or cfg.val_size >= num_samples:
+        raise ValueError(f"val_size must be in [0, {num_samples - 1}], got {cfg.val_size}")
+
+    split_generator = torch.Generator()
+    split_generator.manual_seed(int(cfg.split_seed))
+    permutation = torch.randperm(num_samples, generator=split_generator)
+    val_idx = permutation[: cfg.val_size].clone()
+    train_idx = permutation[cfg.val_size :].clone()
+
+    bn_loader = BatchTensorLoader(
+        images=train_images,
+        labels=train_labels,
+        indices=train_idx,
+        batch_size=int(cfg.bn_batch_size),
+    )
+
+    if str(cfg.eval_split).lower() == "val":
+        eval_loader = BatchTensorLoader(
+            images=train_images,
+            labels=train_labels,
+            indices=val_idx,
+            batch_size=int(cfg.eval_batch_size),
+        )
+    elif str(cfg.eval_split).lower() == "test":
+        eval_loader = BatchTensorLoader(
+            images=test_images,
+            labels=test_labels,
+            indices=torch.arange(test_labels.shape[0], dtype=torch.long),
+            batch_size=int(cfg.eval_batch_size),
+        )
+    else:
+        raise ValueError("eval_split must be either 'val' or 'test'")
+
+    return bn_loader, eval_loader
+
+
+def load_or_prepare_tensor_split(
+    *,
+    data_root: Path,
+    split: str,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    cache_dir = data_root / "tensor_cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    images_path = cache_dir / f"{split}_images_uint8.pt"
+    labels_path = cache_dir / f"{split}_labels.pt"
+
+    if images_path.exists() and labels_path.exists():
+        images = torch.load(images_path, map_location="cpu")
+        labels = torch.load(labels_path, map_location="cpu")
+        return images, labels
+
+    hf_cache_dir = data_root / "hf_cache"
+    hf_dataset = hf_load_dataset(
+        "ufldl-stanford/svhn",
+        "cropped_digits",
+        split=split,
+        cache_dir=str(hf_cache_dir),
+    )
+
+    images = torch.empty((len(hf_dataset), 3, 32, 32), dtype=torch.uint8)
+    labels = torch.empty((len(hf_dataset),), dtype=torch.long)
+
+    for idx in tqdm(range(len(hf_dataset)), desc=f"materialize {split}", leave=False):
+        example = hf_dataset[int(idx)]
+        arr = np.asarray(example["image"], dtype=np.uint8)
+        if arr.ndim != 3:
+            raise ValueError(f"Expected HWC image for {split}[{idx}], got shape {arr.shape}")
+        images[idx] = torch.from_numpy(np.moveaxis(arr, -1, 0))
+        labels[idx] = int(example["label"])
+
+    torch.save(images, images_path)
+    torch.save(labels, labels_path)
+    return images, labels
+
+
+def build_observed_breakpoints(
+    records: list[dict[str, Any]],
+) -> tuple[np.ndarray, list[float], float, float]:
+    state_dicts = [record["state_dict"] for record in records]
+    segment_lengths: list[float] = []
+
+    for idx in range(len(state_dicts) - 1):
+        segment_lengths.append(
+            state_dict_l2_distance(state_dicts[idx], state_dicts[idx + 1])
+        )
+
+    observed_length = float(sum(segment_lengths))
+    if observed_length > 1e-12:
+        breakpoints = [0.0]
+        acc = 0.0
+        for segment_length in segment_lengths:
+            acc += segment_length
+            breakpoints.append(acc / observed_length)
+    else:
+        breakpoints = np.linspace(0.0, 1.0, len(state_dicts)).tolist()
+
+    chord_length = state_dict_l2_distance(state_dicts[0], state_dicts[-1])
+    return np.asarray(breakpoints, dtype=np.float64), segment_lengths, chord_length, observed_length
+
+
+def evaluate_profile(
+    *,
+    path_type: str,
+    records: list[dict[str, Any]],
+    breakpoints: np.ndarray | None,
+    bn_loader: BatchTensorLoader,
+    eval_loader: BatchTensorLoader,
+    cfg: AnalysisConfig,
+    device: torch.device,
+    window_label: str,
+) -> pd.DataFrame:
+    model = build_model().to(device)
+    state_dicts = [record["state_dict"] for record in records]
+    rows: list[dict[str, float]] = []
+
+    progress = tqdm(
+        np.linspace(0.0, 1.0, int(cfg.num_points)),
+        desc=f"{window_label} | {path_type}",
+        leave=False,
+    )
+
+    for t_value in progress:
+        t_float = float(t_value)
+        if path_type == "linear":
+            interpolated_state = lerp_state_dict(state_dicts[0], state_dicts[-1], t_float)
+        elif path_type == "observed":
+            if breakpoints is None:
+                raise ValueError("Observed path requires breakpoints")
+            interpolated_state = interp_state_dicts_by_breakpoints(
+                state_dicts,
+                breakpoints,
+                t_float,
+            )
+        else:
+            raise ValueError(f"Unsupported path type: {path_type}")
+
+        model.load_state_dict(interpolated_state, strict=True)
+        recalibrate_bn_stats(
+            model,
+            bn_loader,
+            device,
+            num_batches=int(cfg.bn_recalib_batches),
+        )
+        loss_value, acc_value = evaluate_loss_acc_loader(model, eval_loader, device)
+        rows.append(
+            {
+                "t": t_float,
+                "loss": float(loss_value),
+                "acc": float(acc_value),
+            }
+        )
+        progress.set_postfix(loss=f"{loss_value:.4f}", acc=f"{acc_value:.4f}")
+
+    return pd.DataFrame(rows)
+
+
+def compute_profile_shape_metrics(profile_df: pd.DataFrame) -> dict[str, float]:
+    t_values = profile_df["t"].to_numpy(dtype=np.float64)
+    loss_values = profile_df["loss"].to_numpy(dtype=np.float64)
+    baseline = (1.0 - t_values) * float(loss_values[0]) + t_values * float(loss_values[-1])
+    diff = loss_values - baseline
+    peak_idx = int(np.argmax(diff))
+    pit_idx = int(np.argmin(diff))
+    pit_signed = float(diff[pit_idx])
+    return {
+        "peak": float(max(0.0, diff[peak_idx])),
+        "peak_t": float(t_values[peak_idx]),
+        "pit_signed": pit_signed,
+        "pit_depth": float(max(0.0, -pit_signed)),
+        "pit_t": float(t_values[pit_idx]),
+    }
+
+
+def compute_profile_deviation_metrics(
+    chord_df: pd.DataFrame,
+    observed_df: pd.DataFrame,
+) -> dict[str, float]:
+    chord_t = chord_df["t"].to_numpy(dtype=np.float64)
+    chord_loss = chord_df["loss"].to_numpy(dtype=np.float64)
+    observed_t = observed_df["t"].to_numpy(dtype=np.float64)
+    observed_loss = observed_df["loss"].to_numpy(dtype=np.float64)
+
+    shared_points = max(len(chord_t), len(observed_t), 2)
+    shared_t = np.linspace(0.0, 1.0, shared_points)
+    chord_interp = np.interp(shared_t, chord_t, chord_loss)
+    observed_interp = np.interp(shared_t, observed_t, observed_loss)
+    abs_diff = np.abs(observed_interp - chord_interp)
+
+    return {
+        "devL1": float(np.mean(abs_diff)),
+        "devLinf": float(np.max(abs_diff)),
+    }
