@@ -748,3 +748,209 @@ def normalize_summary_metadata(run_dir: Path) -> None:
         }
     )
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+
+def write_analysis_config(
+    *,
+    analysis_dir: Path,
+    run_dir: Path,
+    cfg: AnalysisConfig,
+    analysis_subdir: str,
+) -> None:
+    payload = {
+        "analysis_run_dir": str(run_dir.resolve()),
+        "analysis_subdir": str(analysis_subdir),
+        "windows": [list(window) for window in cfg.windows],
+        "num_points": int(cfg.num_points),
+        "bn_recalib_batches": int(cfg.bn_recalib_batches),
+        "eval_split": str(cfg.eval_split),
+        "eval_batch_size": int(cfg.eval_batch_size),
+        "bn_batch_size": int(cfg.bn_batch_size),
+        "val_size": int(cfg.val_size),
+        "split_seed": int(cfg.split_seed),
+        "num_workers": int(cfg.num_workers),
+        "pin_memory": bool(cfg.pin_memory),
+        "top_k_windows_to_plot": int(cfg.top_k_windows_to_plot),
+        "save_outputs": True,
+    }
+    (analysis_dir / "analysis_config.json").write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+
+
+def recompute_run_analysis(
+    *,
+    run_dir: Path,
+    data_root: Path,
+    cfg: AnalysisConfig,
+    device: torch.device,
+    analysis_subdir: str,
+) -> None:
+    checkpoints_dir = run_dir / "checkpoints"
+    analysis_dir = run_dir / "analysis" / str(analysis_subdir)
+    profiles_dir = analysis_dir / "profiles"
+    plots_dir = analysis_dir / "plots"
+    profiles_dir.mkdir(parents=True, exist_ok=True)
+    plots_dir.mkdir(parents=True, exist_ok=True)
+
+    write_analysis_config(
+        analysis_dir=analysis_dir,
+        run_dir=run_dir,
+        cfg=cfg,
+        analysis_subdir=analysis_subdir,
+    )
+    normalize_summary_metadata(run_dir)
+
+    epoch_to_path = list_epoch_checkpoints(checkpoints_dir)
+    bn_loader, eval_loader = build_analysis_loaders(data_root=data_root, cfg=cfg)
+
+    analysis_rows: list[dict[str, Any]] = []
+    analysis_profiles: dict[str, dict[str, pd.DataFrame]] = {}
+
+    for window in cfg.windows:
+        result, chord_df, observed_df = analyze_window(
+            window=window,
+            epoch_to_path=epoch_to_path,
+            bn_loader=bn_loader,
+            eval_loader=eval_loader,
+            profiles_dir=profiles_dir,
+            cfg=cfg,
+            device=device,
+        )
+        analysis_rows.append(result)
+        analysis_profiles[result["window"]] = {
+            "chord": chord_df,
+            "observed": observed_df,
+        }
+
+    analysis_summary_df = pd.DataFrame(analysis_rows)
+    column_order = [
+        "window",
+        "Peak_chord",
+        "Peak_obs",
+        "BarrierGap",
+        "Pit_chord",
+        "Pit_chord_depth",
+        "Pit_obs",
+        "Pit_obs_depth",
+        "devL1",
+        "devLinf",
+        "L_chord",
+        "L_obs",
+        "LengthRatio",
+        "LengthExcess",
+        "chord_profile_csv",
+        "observed_profile_csv",
+    ]
+    analysis_summary_df = analysis_summary_df[column_order]
+    summary_path = analysis_dir / "svhn_chord_vs_observed_summary.csv"
+    analysis_summary_df.to_csv(summary_path, index=False)
+
+    selected_plot_windows = select_windows_for_plot(
+        analysis_summary_df,
+        top_k=cfg.top_k_windows_to_plot,
+    )
+    plot_selected_windows(
+        analysis_profiles,
+        selected_plot_windows,
+        plots_dir / "loss_profiles_top_windows.png",
+        eval_split=cfg.eval_split,
+    )
+
+    print(
+        "Saved:",
+        summary_path,
+        f"| windows={len(analysis_summary_df)}",
+        f"| positive BarrierGap={(analysis_summary_df['BarrierGap'] > 0).sum()}",
+        f"| negative Pit_chord={(analysis_summary_df['Pit_chord'] < 0).sum()}",
+    )
+
+
+def normalize_only(run_dir: Path, cfg: AnalysisConfig, analysis_subdir: str) -> None:
+    analysis_dir = run_dir / "analysis" / str(analysis_subdir)
+    analysis_dir.mkdir(parents=True, exist_ok=True)
+    write_analysis_config(
+        analysis_dir=analysis_dir,
+        run_dir=run_dir,
+        cfg=cfg,
+        analysis_subdir=analysis_subdir,
+    )
+    normalize_summary_metadata(run_dir)
+
+
+def aggregate_runs(
+    runs_root: Path,
+    *,
+    analysis_subdir: str,
+    aggregate_dirname: str,
+) -> tuple[Path, Path, Path]:
+    rows: list[dict[str, Any]] = []
+    window_rows: list[dict[str, Any]] = []
+
+    for run_dir in sorted(p for p in runs_root.iterdir() if p.is_dir()):
+        run_name = run_dir.name
+        try:
+            parsed = parse_run_name(run_name)
+        except ValueError:
+            continue
+
+        summary_path = (
+            run_dir / "analysis" / str(analysis_subdir) / "svhn_chord_vs_observed_summary.csv"
+        )
+        if not summary_path.exists():
+            continue
+
+        df = pd.read_csv(summary_path)
+        rows.append(
+            {
+                "run": run_name,
+                "lr": float(parsed["lr"]),
+                "bs": int(parsed["bs"]),
+                "T_proxy_lr_over_bs": float(parsed["lr"] / parsed["bs"]),
+                "mean Peak_chord": float(df["Peak_chord"].mean()),
+                "mean Peak_obs": float(df["Peak_obs"].mean()),
+                "mean BarrierGap": float(df["BarrierGap"].mean()),
+                "mean Pit_chord": float(df["Pit_chord"].mean()),
+                "mean devL1": float(df["devL1"].mean()),
+                "num_windows": int(len(df)),
+                "n BarrierGap>0": int((df["BarrierGap"] > 0).sum()),
+                "n Pit_chord<0": int((df["Pit_chord"] < 0).sum()),
+            }
+        )
+
+        for _, row in df.iterrows():
+            window_rows.append(
+                {
+                    "run": run_name,
+                    "lr": float(parsed["lr"]),
+                    "bs": int(parsed["bs"]),
+                    "T_proxy_lr_over_bs": float(parsed["lr"] / parsed["bs"]),
+                    "window": row["window"],
+                    "Peak_chord": float(row["Peak_chord"]),
+                    "Peak_obs": float(row["Peak_obs"]),
+                    "BarrierGap": float(row["BarrierGap"]),
+                    "Pit_chord": float(row["Pit_chord"]),
+                    "devL1": float(row["devL1"]),
+                }
+            )
+
+    aggregate_dir = runs_root / str(aggregate_dirname)
+    aggregate_dir.mkdir(parents=True, exist_ok=True)
+
+    run_summary_df = pd.DataFrame(rows).sort_values(["lr", "bs"]).reset_index(drop=True)
+    window_metrics_df = pd.DataFrame(window_rows).sort_values(["window", "bs"]).reset_index(drop=True)
+    barriergap_by_bs_df = (
+        window_metrics_df.pivot_table(index="window", columns="bs", values="BarrierGap", aggfunc="mean")
+        .reset_index()
+    )
+
+    run_summary_path = aggregate_dir / "svhn_run_summary.csv"
+    window_metrics_path = aggregate_dir / "svhn_window_metrics.csv"
+    barriergap_by_bs_path = aggregate_dir / "svhn_window_barriergap_by_bs.csv"
+
+    run_summary_df.to_csv(run_summary_path, index=False)
+    window_metrics_df.to_csv(window_metrics_path, index=False)
+    barriergap_by_bs_df.to_csv(barriergap_by_bs_path, index=False)
+
+    return run_summary_path, window_metrics_path, barriergap_by_bs_path
