@@ -257,3 +257,80 @@ def _patch_tiny_pipeline_modules(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(trainer_mod, "get_device", lambda: torch.device("cpu"))
     monkeypatch.setattr(interp_mod, "get_device", lambda: torch.device("cpu"))
     monkeypatch.setattr(geom_mod, "get_device", lambda: torch.device("cpu"))
+
+
+
+def test_train_interpolation_barrier_pipeline_smoke(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_tiny_pipeline_modules(monkeypatch)
+
+    cfg = _base_train_cfg()
+    seed = 11
+    run_name = _run_name(seed=seed, lr=cfg["training"]["learning_rate"], bs=cfg["training"]["batch_size"])
+    run_dir = tmp_path / "outputs" / "runs_lr_bs_grid" / run_name
+
+    final_ckpt = train_one_run(cfg, seed=seed, out_dir=str(run_dir))
+
+    ckpt_a = run_dir / "checkpoints" / "epoch_001.pt"
+    ckpt_b = run_dir / "checkpoints" / "epoch_002.pt"
+    summary_path = run_dir / "summary.json"
+    run_config_path = run_dir / "run_config.json"
+    metrics_path = run_dir / "metrics.jsonl"
+
+    assert ckpt_a.exists()
+    assert ckpt_b.exists()
+    assert final_ckpt.exists()
+    assert summary_path.exists()
+    assert run_config_path.exists()
+    assert metrics_path.exists()
+
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["final_checkpoint"] == str(final_ckpt)
+    assert summary["save_every_epochs"] == 1
+
+    metrics_lines = metrics_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(metrics_lines) == 2
+
+    interp_cfg = tmp_path / "interpolation.yaml"
+    barrier_cfg = tmp_path / "barrier.yaml"
+    _write_interpolation_cfg(interp_cfg)
+    _write_barrier_cfg(barrier_cfg)
+
+    interp_dir = tmp_path / "artifacts" / "interpolation"
+    barrier_dir = tmp_path / "artifacts" / "barrier"
+
+    interp_csv = run_interpolation(str(ckpt_a), str(ckpt_b), str(interp_cfg), str(interp_dir))
+    barrier_json = compute_barrier(str(interp_csv), str(barrier_cfg), str(barrier_dir))
+
+    interp_meta_path = interp_csv.with_suffix(".meta.json")
+    assert interp_csv.exists()
+    assert interp_meta_path.exists()
+    assert barrier_json.exists()
+
+    interp_arr = np.loadtxt(interp_csv, delimiter=",", skiprows=1)
+    assert interp_arr.shape == (5, 3)
+
+    interp_meta = json.loads(interp_meta_path.read_text(encoding="utf-8"))
+    barrier_payload = json.loads(barrier_json.read_text(encoding="utf-8"))
+
+    assert Path(interp_meta["ckptA"]).resolve() == ckpt_a.resolve()
+    assert Path(interp_meta["ckptB"]).resolve() == ckpt_b.resolve()
+    assert interp_meta["artifact"]["stem"] == interp_csv.stem
+    assert interp_meta["artifact"]["pair_tag"] in interp_csv.stem
+    assert interp_meta["evaluation"]["bn_batch_size"] == 8
+    assert interp_meta["path"]["num_points"] == 5
+
+    assert barrier_payload["interp_csv"] == str(interp_csv)
+    assert barrier_payload["artifact"]["interp_stem"] == interp_csv.stem
+    assert barrier_payload["artifact"]["stem"] == barrier_json.stem
+    assert barrier_payload["artifact"]["pair_tag"] == interp_meta["artifact"]["pair_tag"]
+    assert barrier_payload["path"] == interp_meta["path"]
+    assert barrier_payload["evaluation"] == interp_meta["evaluation"]
+
+    barriers_csv = barrier_dir / "barriers.csv"
+    assert barriers_csv.exists()
+    assert str(interp_csv) in barriers_csv.read_text(encoding="utf-8")
+    assert "cfg_" in interp_csv.stem
+    assert "cfg_" in barrier_json.stem
