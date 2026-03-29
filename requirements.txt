@@ -1,0 +1,7 @@
+# базовые зависимости для запуска проекта
+numpy
+pandas
+pyyaml
+torch
+torchvision
+tqdm
