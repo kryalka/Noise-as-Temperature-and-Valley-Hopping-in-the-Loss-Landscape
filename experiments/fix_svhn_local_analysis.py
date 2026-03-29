@@ -954,3 +954,71 @@ def aggregate_runs(
     barriergap_by_bs_df.to_csv(barriergap_by_bs_path, index=False)
 
     return run_summary_path, window_metrics_path, barriergap_by_bs_path
+
+
+def main() -> None:
+    args = parse_args()
+    torch.set_grad_enabled(False)
+    device = torch.device(args.device)
+
+    analysis_cfg = AnalysisConfig(
+        windows=list(DEFAULT_WINDOWS),
+        num_points=int(args.num_points),
+        bn_recalib_batches=int(args.bn_recalib_batches),
+        eval_split="val",
+        eval_batch_size=int(args.eval_batch_size),
+        bn_batch_size=int(args.bn_batch_size),
+        val_size=int(args.val_size),
+        split_seed=int(args.split_seed),
+        num_workers=int(args.num_workers),
+        pin_memory=False,
+        top_k_windows_to_plot=int(args.top_k_windows_to_plot),
+    )
+
+    runs_root = args.runs_root.resolve()
+    data_root = args.data_root.resolve()
+    data_root.mkdir(parents=True, exist_ok=True)
+
+    all_run_dirs = sorted(p for p in runs_root.iterdir() if p.is_dir())
+    selected = set(args.runs)
+    if selected:
+        run_dirs = [run for run in all_run_dirs if run.name in selected]
+        missing = selected.difference({run.name for run in run_dirs})
+        if missing:
+            raise FileNotFoundError(f"Requested runs not found under {runs_root}: {sorted(missing)}")
+    else:
+        run_dirs = all_run_dirs
+
+    if not run_dirs:
+        raise FileNotFoundError(f"No run directories found under {runs_root}")
+
+    for run_dir in all_run_dirs:
+        normalize_only(
+            run_dir,
+            analysis_cfg,
+            analysis_subdir=str(args.analysis_subdir),
+        )
+
+    if not args.skip_recompute:
+        for run_dir in run_dirs:
+            recompute_run_analysis(
+                run_dir=run_dir,
+                data_root=data_root,
+                cfg=analysis_cfg,
+                device=device,
+                analysis_subdir=str(args.analysis_subdir),
+            )
+
+    run_summary_path, window_metrics_path, barriergap_by_bs_path = aggregate_runs(
+        runs_root,
+        analysis_subdir=str(args.analysis_subdir),
+        aggregate_dirname=str(args.aggregate_dirname),
+    )
+    print("\nAggregate tables:")
+    print(" ", run_summary_path)
+    print(" ", window_metrics_path)
+    print(" ", barriergap_by_bs_path)
+
+
+if __name__ == "__main__":
+    main()
