@@ -1,0 +1,23 @@
+base_config: configs/train/sgd_base.yaml
+out_root: outputs/runs_lr_bs_grid_custom_example
+
+seeds:
+  - 3
+  - 7
+
+learning_rates:
+  - 0.03
+  - 0.12
+
+batch_sizes:
+  - 48
+  - 96
+
+config_overrides:
+  dataset: cifar10
+  model: resnet18
+  training:
+    epochs: 50
+  data:
+    val_size: 4000
+    split_seed: 123
