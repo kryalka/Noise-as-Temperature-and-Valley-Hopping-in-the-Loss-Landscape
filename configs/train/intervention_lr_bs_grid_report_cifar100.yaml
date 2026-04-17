@@ -1,0 +1,68 @@
+base_config: configs/train/windowed_intervention_cifar100.yaml
+out_root: outputs/runs_lr_bs_grid_intervention_report_cifar100
+
+seeds:
+  - 1
+  - 2
+
+learning_rates:
+  - 0.025
+  - 0.05
+  - 0.1
+  - 0.2
+
+batch_sizes:
+  - 32
+  - 64
+  - 128
+  - 256
+
+intervention_variants:
+  - {name: w50_100_x0p7, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 0.7}
+  - {name: w50_100_x1p25, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.25}
+  - {name: w50_100_x1p3, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.3}
+  - {name: w50_100_x1p35, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.35}
+  - {name: w50_100_x1p4, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.4}
+  - {name: w50_100_x1p45, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.45}
+  - {name: w50_100_x1p5, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.5}
+  - {name: w50_100_x1p75, enabled: true, start_epoch: 50, end_epoch: 100, lr_multiplier: 1.75}
+  - {name: w60_65_x0p7, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 0.7}
+  - {name: w60_65_x1p25, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.25}
+  - {name: w60_65_x1p3, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.3}
+  - {name: w60_65_x1p35, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.35}
+  - {name: w60_65_x1p4, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.4}
+  - {name: w60_65_x1p45, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.45}
+  - {name: w60_65_x1p5, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.5}
+  - {name: w60_65_x1p75, enabled: true, start_epoch: 60, end_epoch: 65, lr_multiplier: 1.75}
+  - {name: w65_70_x0p7, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 0.7}
+  - {name: w65_70_x1p25, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.25}
+  - {name: w65_70_x1p3, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.3}
+  - {name: w65_70_x1p35, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.35}
+  - {name: w65_70_x1p4, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.4}
+  - {name: w65_70_x1p45, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.45}
+  - {name: w65_70_x1p5, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.5}
+  - {name: w65_70_x1p75, enabled: true, start_epoch: 65, end_epoch: 70, lr_multiplier: 1.75}
+  - {name: w70_75_x0p7, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 0.7}
+  - {name: w70_75_x1p25, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.25}
+  - {name: w70_75_x1p3, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.3}
+  - {name: w70_75_x1p35, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.35}
+  - {name: w70_75_x1p4, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.4}
+  - {name: w70_75_x1p45, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.45}
+  - {name: w70_75_x1p5, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.5}
+  - {name: w70_75_x1p75, enabled: true, start_epoch: 70, end_epoch: 75, lr_multiplier: 1.75}
+  - {name: w75_80_x0p7, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 0.7}
+  - {name: w75_80_x1p25, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.25}
+  - {name: w75_80_x1p3, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.3}
+  - {name: w75_80_x1p35, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.35}
+  - {name: w75_80_x1p4, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.4}
+  - {name: w75_80_x1p45, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.45}
+  - {name: w75_80_x1p5, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.5}
+  - {name: w75_80_x1p75, enabled: true, start_epoch: 75, end_epoch: 80, lr_multiplier: 1.75}
+  - {name: w80_85_x0p7, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 0.7}
+  - {name: w80_85_x1p25, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.25}
+  - {name: w80_85_x1p3, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.3}
+  - {name: w80_85_x1p35, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.35}
+  - {name: w80_85_x1p4, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.4}
+  - {name: w80_85_x1p45, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.45}
+  - {name: w80_85_x1p5, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.5}
+  - {name: w80_85_x1p75, enabled: true, start_epoch: 80, end_epoch: 85, lr_multiplier: 1.75}
