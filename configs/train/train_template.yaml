@@ -1,0 +1,31 @@
+dataset: <set-dataset-name>
+model: <set-model-name>
+
+# Optional when the dataset is not one of the built-in image datasets.
+# dataset_builder: package.module:build_dataset_spec
+
+# Optional when the model is not one of the built-in model builders.
+# model_builder: package.module:build_model
+
+data_root: ./data
+
+data:
+  val_size: 5000
+  split_seed: 42
+  num_workers: 0
+  pin_memory: false
+
+training:
+  optimizer: sgd
+  epochs: 100
+  batch_size: 128
+  learning_rate: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  nesterov: true
+  scheduler: none
+
+logging:
+  save_every_epochs: 1
+  save_final: true
+  save_best: true
