@@ -1,31 +1,30 @@
-outputs/
-
 /data/
-outputs/data/
-
-!/src/ntempvh/data/
-!/src/ntempvh/data/*.py
+/outputs/
 
 __pycache__/
 *.py[cod]
 *.pyo
 *.pyd
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 .venv/
 .env/
 .envrc
 
+.tmp/
+files.txt
+project_dump.txt
+.local_review/
+TOOL_READINESS_REVIEW.md
+STYLE_PASS_NOTES.md
+PIPELINE_UNIVERSALIZATION_PLAN.md
+PIPELINE_UNIVERSALIZATION_REPORT.md
+
 .DS_Store
 .idea/
 .vscode/
-*.egg-info/
-
-
-__pycache__/
-*.pyc
-.venv/
-/data/
-outputs/
-.DS_Store
-files.txt
-project_dump.txt
