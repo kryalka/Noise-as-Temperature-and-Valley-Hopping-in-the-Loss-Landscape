@@ -1,0 +1,41 @@
+pipeline:
+  out_root: outputs/example/report_flow
+
+baseline:
+  enabled: true
+  train_grid_config: configs/train/lr_bs_grid_example.yaml
+  trajectory_pairs:
+    out_csv: outputs/example/trajectory_pairs.csv
+    out_json: outputs/example/trajectory_pairs_summary.json
+    pair_mode: milestones
+    milestone_epochs:
+      - 1
+      - 5
+      - 10
+      - 20
+      - 40
+      - 50
+  interpolation_config: configs/eval/interpolation.yaml
+  interpolation_out: outputs/example/interpolation
+  barrier_config: configs/eval/barrier.yaml
+  barrier_out: outputs/example/barrier
+  path_compare_config: configs/eval/path_compare_example.yaml
+  path_compare_out: outputs/example/path_compare
+
+intervention:
+  enabled: true
+  train_grid_config: configs/train/intervention_lr_bs_grid_example.yaml
+  geometry_config: configs/eval/geometry.yaml
+  geometry_out: outputs/example/geometry
+
+results:
+  enabled: true
+  out_root: outputs/example/results
+
+final_outputs:
+  enabled: true
+  out_root: outputs/example/final_outputs
+
+figure_outputs:
+  enabled: true
+  out_root: outputs/example/figure_outputs
