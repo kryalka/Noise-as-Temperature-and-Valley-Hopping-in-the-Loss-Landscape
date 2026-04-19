@@ -1,0 +1,14 @@
+base_config: configs/train/train_example.yaml
+out_root: outputs/runs_example/baseline
+
+seeds:
+  - 3
+  - 7
+
+learning_rates:
+  - 0.03
+  - 0.12
+
+batch_sizes:
+  - 48
+  - 96

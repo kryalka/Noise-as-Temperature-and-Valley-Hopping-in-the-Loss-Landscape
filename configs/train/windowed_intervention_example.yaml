@@ -1,0 +1,32 @@
+dataset: cifar10
+model: resnet18
+
+data_root: ./data
+
+data:
+  val_size: 4000
+  split_seed: 123
+  num_workers: 0
+  pin_memory: false
+
+training:
+  optimizer: sgd
+  epochs: 80
+  batch_size: 128
+  learning_rate: 0.1
+  momentum: 0.9
+  weight_decay: 5e-4
+  nesterov: true
+  scheduler: none
+
+intervention:
+  enabled: true
+  start_epoch: 10
+  end_epoch: 20
+  lr_multiplier: 1.5
+  batch_size: 64
+
+logging:
+  save_every_epochs: 1
+  save_final: true
+  save_best: true

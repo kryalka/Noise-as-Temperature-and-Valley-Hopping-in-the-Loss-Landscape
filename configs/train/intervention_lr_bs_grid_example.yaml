@@ -1,0 +1,27 @@
+base_config: configs/train/windowed_intervention_example.yaml
+out_root: outputs/runs_example/intervention
+
+seeds:
+  - 5
+
+learning_rates:
+  - 0.05
+  - 0.1
+
+batch_sizes:
+  - 64
+  - 128
+
+intervention_variants:
+  - name: early_boost
+    enabled: true
+    start_epoch: 10
+    end_epoch: 20
+    lr_multiplier: 1.5
+    batch_size: 64
+  - name: late_boost
+    enabled: true
+    start_epoch: 40
+    end_epoch: 60
+    lr_multiplier: 2.0
+    batch_size: 32
