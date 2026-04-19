@@ -1,189 +1,132 @@
-Репозиторий для диагностики траекторий обучения и анализа ландшафта потерь
+# Noise as Temperature and Valley Hopping in the Loss Landscape
 
-Можно:
-- запускать сетки обучений
-- строить interpolation и barrier артефакты между checkpoint-ами
-- сравнивать `chord-path` и `observed-path`
-- запускать локальные температурные интервенции
-- считать proxy geometry
-- собирать итоговые таблицы, summary и figure-ready outputs
-- запускать отдельный diagnostic pipeline по парам checkpoint-ов
+This repository contains a configurable research pipeline for training runs, checkpoint-trajectory analysis, path-based loss diagnostics, local geometry estimation, and intervention studies. It is organized as a reusable package with YAML-driven workflows, plus example presets for small-image benchmarks and a small set of optional example-specific helpers.
 
-## Что здесь есть
+## Main capabilities
 
-В репозитории есть несколько слоёв:
+- train single runs or learning-rate and batch-size grids from YAML configs
+- build checkpoint pairs and evaluate interpolation, barrier, and path-comparison artifacts
+- estimate local geometry around checkpoints before and after interventions
+- aggregate stage outputs into stable CSV, JSON, Markdown, and SVG artifacts
+- support custom datasets and models through explicit config fields and builder paths
 
-- `ntempvh/train`  
-  обучение одной модели, чекпоинты, метрики, интервенции
+## Repository structure
 
-- `ntempvh/eval`  
-  interpolation, barrier, geometry, compare-paths
+- `ntempvh/`: reusable pipeline code
+- `configs/`: runnable example configs and editable templates
+- `examples/`: optional dataset-specific examples outside the core workflow
+- `experiments/`: optional shell wrappers and local helper scripts
+- `tests/`: smoke and regression tests
 
-- `ntempvh/pipeline`  
-  orchestration поверх compute-слоя, в том числе `report_flow` и `diagnostic_pipeline`
+## Installation
 
-- `ntempvh/results`  
-  results aggregation, final outputs, figure outputs, diagnostic summaries
-
-- `configs/`  
-  готовые пресеты под отчёт и примеры кастомных сценариев
-
-- `experiments/`  
-  shell wrappers для типовых запусков
-
-- `tests/`  
-  smoke, integration и regression tests
-
-## Что уже доступно для использования
-
-Есть рабочие сценарии для:
-
-- datasets  
-  `cifar10`, `cifar100`, `svhn`
-
-- models  
-  `resnet18`, `resnet34`, `resnet50`, `resnet100`
-
-## Как запускать
-
-Запускать проект из корня репозитория
-
-### Проверка тестов
+From the repository root:
 
 ```bash
-python3.11 -m pytest -q tests
+make install
 ```
 
-### Полноценные запуски
+This installs the package in editable mode with the development dependencies used by the local test suite.
 
-Если нужен готовый сценарий для полноценной работы, самый прямой путь такой:
+## Quickstart
+
+Minimal local verification:
 
 ```bash
-bash experiments/run_report_flow.sh configs/pipeline/report_cifar10.yaml
+make smoke
 ```
 
-или так:
+This checks the CLI surface and runs a synthetic-data smoke pipeline. It does not download a dataset.
+
+### Common entry points
+
+- `python -m ntempvh train --config configs/train/train_example.yaml --seed 1 --out outputs/runs/manual_example`
+- `python -m ntempvh.pipeline.report_flow --config configs/pipeline/report_example.yaml`
+- `python -m ntempvh.pipeline.diagnostic_pipeline --config configs/pipeline/diagnostic_pairs_example.yaml`
+
+## Reproducible workflows
+
+Canonical full example:
 
 ```bash
-python3.11 -m ntempvh.pipeline.report_flow --config configs/pipeline/report_cifar10.yaml
+make report-flow REPORT_CONFIG=configs/pipeline/report_example.yaml
 ```
 
-есть и другие готовые способы:
-- `configs/pipeline/report_cifar100.yaml`
-- `configs/pipeline/report_cifar10_resnet34.yaml`
-- `configs/pipeline/report_cifar100_resnet34.yaml`
+The shipped `report_example.yaml` preset is a runnable example built around the built-in `cifar10` and `resnet18` components. The same workflow can target a different dataset or model by editing the config family under `configs/train/` and, when needed, setting `dataset_builder` or `model_builder`.
 
-Если нужен именно диагностический анализ по парам checkpoint-ов, запуск такой:
+The example workflow writes its main manifests to:
+
+- `outputs/example/report_flow/report_flow_manifest.json`
+- `outputs/example/results/results_manifest.json`
+- `outputs/example/final_outputs/final_outputs_manifest.json`
+- `outputs/example/figure_outputs/figure_outputs_manifest.json`
+
+## Main configs and modifying experiments
+
+Use these files as starting points:
+
+- `configs/pipeline/report_example.yaml`: runnable end-to-end example
+- `configs/train/train_example.yaml`: single-run training example
+- `configs/train/lr_bs_grid_example.yaml`: baseline grid example
+- `configs/train/intervention_lr_bs_grid_example.yaml`: intervention grid example
+- `configs/train/train_template.yaml`: editable training template for a new dataset or model
+- `configs/pipeline/report_template.yaml`: editable end-to-end workflow template
+
+Built-in datasets and models are selected through `dataset` and `model`. For components that are not built in, set:
+
+- `dataset_builder: package.module:build_dataset_spec`
+- `model_builder: package.module:build_model`
+
+Those builder paths are stored in `run_config.json` and reused by downstream evaluation stages, so new datasets and models do not require source edits once the config is in place.
+
+## Output artifacts and where results appear
+
+Training runs write:
+
+- `run_config.json`
+- `summary.json`
+- `metrics.jsonl`
+- `checkpoints/*.pt`
+
+Analysis stages write under their configured output roots:
+
+- interpolation CSV files with matching `.meta.json`
+- barrier JSON summaries and `barriers.csv`
+- path-comparison JSON summaries plus aggregate CSV tables
+- geometry JSON summaries and `geometries.csv`
+- report-flow, results, final-output, and figure-output manifests
+
+The exact roots are defined in the pipeline config. The shipped example uses `outputs/example/`.
+
+## Testing
+
+Full test suite:
 
 ```bash
-bash experiments/run_diagnostic_pipeline.sh configs/pipeline/diagnostic_pairs_example.yaml
+make test
 ```
 
-или напрямую модулем:
+Fast local check:
 
 ```bash
-python3.11 -m ntempvh.pipeline.diagnostic_pipeline --config configs/pipeline/diagnostic_pairs_example.yaml
+make smoke
 ```
 
-Если хочется запускать стадии по одной, есть центральный CLI:
+The local CI workflow in `.github/workflows/ci.yml` runs the same test suite.
 
-```bash
-python3.11 -m ntempvh.cli train --config configs/train/sgd_base.yaml --seed 1 --out outputs/runs
-python3.11 -m ntempvh.cli interpolate --ckptA path/to/a.pt --ckptB path/to/b.pt --config configs/eval/interpolation.yaml --out outputs/artifacts/interp
-python3.11 -m ntempvh.cli barrier --interp_csv outputs/artifacts/interp/example.csv --config configs/eval/barrier.yaml --out outputs/artifacts/barrier
-python3.11 -m ntempvh.cli compare-paths --ckptA path/to/a.pt --ckptB path/to/b.pt --config configs/eval/path_compare.yaml --out outputs/artifacts/path_compare
-python3.11 -m ntempvh.cli geometry --ckpt path/to/a.pt --config configs/eval/geometry.yaml --out outputs/artifacts/geometry
-```
+## Reproducibility notes
 
-## Какие артефакты получаются
+- Training, evaluation, and pipeline parameters should be declared explicitly in YAML configs.
+- Checkpoints are accompanied by `run_config.json`, which records dataset, model, and optional builder paths.
+- Evaluation stages resolve dataset and model builders from that stored run configuration when present.
+- Seeds are set for Python, NumPy, and PyTorch, but exact numeric agreement can still depend on hardware and library versions.
 
-### После вычислительных стадий
+See [REPRODUCIBILITY.md](REPRODUCIBILITY.md) for environment assumptions, reviewer scope, and output layout.
 
-Появляются такие каталоги:
+## Citation
 
-- `outputs/runs_*`  
-  train run директории, `summary.json`, `metrics.jsonl`, `checkpoints/`
+Citation metadata is in [CITATION.cff](CITATION.cff).
 
-- `outputs/artifacts/interpolation*`  
-  interpolation csv и meta json
+## License
 
-- `outputs/artifacts/barrier*`  
-  barrier json
-
-- `outputs/artifacts/path_compare*`  
-  compare-path json и summary csv
-
-- `outputs/artifacts/geometry*`  
-  geometry json
-
-### После слоев сборки результатов
-
-results слой сводит compute артефакты в таблицы:
-
-- `compare_paths_results.csv`
-- `intervention_runs_results.csv`
-- `intervention_geometry_runs_results.csv`
-- `path_quality_links.csv`
-- `results_manifest.json`
-
-### После финальных слоев
-
-- `baseline_regime_table.csv`
-- `compare_paths_final_summary.csv`
-- `intervention_window_summary.csv`
-- `geometry_transition_summary.csv`
-- `baseline_regime_maps.json`
-- `final_outputs_manifest.json`
-
-### После слоев для построения графиков/карт
-
-- svg heatmaps по режимам
-- svg summaries для compare-paths
-- svg summaries для interventions
-- svg summaries для geometry transitions
-- `figure_outputs_manifest.json`
-
-## Диагностический пайплайн
-
-Пайплайн задуман как инструмент для анализа траекторий чекпоинтов
-
-на входе у него может быть:
-- готовый `pairs_csv` с колонками `ckptA` и `ckptB`
-- или `runs_root`, если пары нужно собрать из run директорий автоматически
-
-на выходе он пишет:
-- pair-level таблицу с `Peakobs`, `Pitchord`, `Pitobs`, `BarrierGap`, `devL1`
-- `curvature_proxy_A`, `curvature_proxy_B`, `curvature_proxy_mean`
-- regime summary table
-- regime maps json
-- markdown и json report
-- machine-readable manifest
-
-## Советы
-
-Если хочется быстро понять проект руками, самые полезные конфиги такие:
-
-- `configs/train/sgd_base.yaml`
-- `configs/train/lr_bs_grid.yaml`
-- `configs/train/windowed_intervention.yaml`
-- `configs/eval/interpolation.yaml`
-- `configs/eval/barrier.yaml`
-- `configs/eval/path_compare.yaml`
-- `configs/eval/geometry.yaml`
-- `configs/pipeline/report_cifar10.yaml`
-- `configs/pipeline/diagnostic_pairs_example.yaml`
-
-если нужен кастомный запуск, полезно смотреть и example-конфиги:
-
-- `configs/train/lr_bs_grid_custom_example.yaml`
-- `configs/train/intervention_lr_bs_grid_custom_example.yaml`
-- `configs/eval/path_compare_custom_example.yaml`
-- `configs/pipeline/report_custom_example.yaml`
-
-## Что важно для повторного использования
-
-- checkpoint файлы должны быть доступны по путям из `pairs_csv` или `runs_root`
-- compare config и geometry config должны подходить к этим checkpoint-ам
-- для train-generated runs репозиторий уже умеет извлекать метаданные автоматически
-- для внешних траекторий минимальный контракт это валидные пути `ckptA` и `ckptB`
-
+MIT License. See [LICENSE](LICENSE).
