@@ -1,8 +1,14 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ntempvh"
 version = "0.1.0"
-description = "Noise as Temperature and Valley Hopping in the Loss Landscape"
+description = "Configurable research pipeline for checkpoint trajectory diagnostics and loss-landscape analysis"
+readme = "README.md"
 requires-python = ">=3.10"
+license = {file = "LICENSE"}
 dependencies = [
   "numpy",
   "pandas",
@@ -11,17 +17,31 @@ dependencies = [
   "torchvision",
   "tqdm",
 ]
+classifiers = [
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
 [project.optional-dependencies]
 dev = [
   "pytest",
+  "pre-commit",
 ]
 
-[tool.setuptools]
-package-dir = {"" = "src"}
-
 [tool.setuptools.packages.find]
-where = ["src"]
+where = ["."]
+include = ["ntempvh*"]
 
 [project.scripts]
 ntempvh = "ntempvh.cli:main"
+
+[project.urls]
+Repository = "https://github.com/kryalka/Noise-as-Temperature-and-Valley-Hopping-in-the-Loss-Landscape"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

@@ -1,4 +1,4 @@
-# базовые зависимости для запуска проекта
+# Base runtime dependencies for local execution.
 numpy
 pandas
 pyyaml
