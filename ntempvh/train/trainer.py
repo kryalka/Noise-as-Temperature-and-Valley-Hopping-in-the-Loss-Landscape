@@ -6,17 +6,14 @@ from typing import Any
 import torch
 import torch.nn as nn
 
-from ntempvh.data.cifar import (
-    get_cifar10_loaders,
-    get_cifar100_loaders,
-    get_cifar10_test_loader,
-    get_cifar100_test_loader,
-    get_dataset_loaders,
-    get_dataset_test_loader,
+from ntempvh.data.image_classification import (
+    build_test_loader,
+    build_train_loaders,
+    ensure_dataset_registered,
     get_num_classes_for_dataset,
 )
 from ntempvh.eval.metrics import eval_loss_acc
-from ntempvh.models.resnet_cifar import make_model
+from ntempvh.models.factory import ensure_model_registered, make_model
 from ntempvh.train._trainer_runtime import run_train_one_run
 from ntempvh.train.optim import make_optimizer
 from ntempvh.train.schedules import make_scheduler, step_scheduler
@@ -28,15 +25,17 @@ from ntempvh.utils.runtime import call_with_supported_kwargs
 from ntempvh.utils.seed import set_seed
 
 
-
 @torch.no_grad()
 def evaluate(model: nn.Module, loader, device: torch.device) -> dict[str, float]:
     val_loss, val_acc = eval_loss_acc(model, loader, device)
     return {"val_loss": val_loss, "val_acc": val_acc}
 
 
-
-def _resolve_intervention_config(config: dict[str, Any], *, base_batch_size: int) -> dict[str, Any]:
+def _resolve_intervention_config(
+    config: dict[str, Any],
+    *,
+    base_batch_size: int,
+) -> dict[str, Any]:
     raw = dict(config.get("intervention", {}) or {})
     enabled = bool(raw.get("enabled", False))
     start_epoch = int(raw["start_epoch"]) if raw.get("start_epoch", None) is not None else None
@@ -49,13 +48,21 @@ def _resolve_intervention_config(config: dict[str, Any], *, base_batch_size: int
         "lr_multiplier": float(raw.get("lr_multiplier", 1.0)),
         "batch_size": batch_size,
         "effective_batch_size": int(base_batch_size if batch_size is None else batch_size),
-        "num_intervention_epochs": int(end_epoch - start_epoch + 1) if enabled and start_epoch is not None and end_epoch is not None else 0,
+        "num_intervention_epochs": (
+            int(end_epoch - start_epoch + 1)
+            if enabled and start_epoch is not None and end_epoch is not None
+            else 0
+        ),
     }
 
 
 def _is_intervention_epoch(intervention_cfg: dict[str, Any], epoch: int) -> bool:
-    return bool(intervention_cfg["enabled"] and intervention_cfg["start_epoch"] is not None and intervention_cfg["end_epoch"] is not None and intervention_cfg["start_epoch"] <= int(epoch) <= intervention_cfg["end_epoch"])
-
+    return bool(
+        intervention_cfg["enabled"]
+        and intervention_cfg["start_epoch"] is not None
+        and intervention_cfg["end_epoch"] is not None
+        and intervention_cfg["start_epoch"] <= int(epoch) <= intervention_cfg["end_epoch"]
+    )
 
 
 def _build_train_loaders(
@@ -69,15 +76,17 @@ def _build_train_loaders(
     num_workers: int,
     pin_memory: bool,
 ):
-    dataset_name = str(dataset_name).strip().lower()
-    if dataset_name == "cifar10":
-        loader_fn = get_cifar10_loaders
-    elif dataset_name == "cifar100":
-        loader_fn = get_cifar100_loaders
-    else:
-        def loader_fn(*, root, batch_size, val_size=5000, split_seed=0, shuffle_seed=None, num_workers=0, pin_memory=True, val_batch_size=256, bn_batch_size=None):
-            return get_dataset_loaders(dataset_name, root, batch_size, val_size=val_size, split_seed=split_seed, shuffle_seed=shuffle_seed, num_workers=num_workers, pin_memory=pin_memory, val_batch_size=val_batch_size, bn_batch_size=bn_batch_size)
-    return call_with_supported_kwargs(loader_fn, root=data_root, batch_size=batch_size, val_size=val_size, split_seed=split_seed, shuffle_seed=shuffle_seed, num_workers=num_workers, pin_memory=pin_memory)
+    return call_with_supported_kwargs(
+        build_train_loaders,
+        dataset_name=dataset_name,
+        root=data_root,
+        batch_size=batch_size,
+        val_size=val_size,
+        split_seed=split_seed,
+        shuffle_seed=shuffle_seed,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
 
 
 def _build_test_loader(
@@ -88,15 +97,14 @@ def _build_test_loader(
     num_workers: int,
     pin_memory: bool,
 ):
-    dataset_name = str(dataset_name).strip().lower()
-    if dataset_name == "cifar10":
-        loader_fn = get_cifar10_test_loader
-    elif dataset_name == "cifar100":
-        loader_fn = get_cifar100_test_loader
-    else:
-        def loader_fn(*, root, batch_size=256, num_workers=0, pin_memory=True):
-            return get_dataset_test_loader(dataset_name, root, batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
-    return call_with_supported_kwargs(loader_fn, root=data_root, batch_size=batch_size, num_workers=num_workers, pin_memory=pin_memory)
+    return call_with_supported_kwargs(
+        build_test_loader,
+        dataset_name=dataset_name,
+        root=data_root,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=pin_memory,
+    )
 
 
 def _save_checkpoint(
@@ -128,8 +136,23 @@ def _save_checkpoint(
     return path
 
 
-
 def train_one_run(config: dict[str, Any], seed: int, out_dir: str) -> Path:
+    ensure_dataset_registered(
+        str(config.get("dataset", "")),
+        builder_path=(
+            None
+            if config.get("dataset_builder") in (None, "")
+            else str(config.get("dataset_builder"))
+        ),
+    )
+    ensure_model_registered(
+        str(config.get("model", "")),
+        builder_path=(
+            None
+            if config.get("model_builder") in (None, "")
+            else str(config.get("model_builder"))
+        ),
+    )
     return run_train_one_run(
         config,
         seed,

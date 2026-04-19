@@ -21,7 +21,6 @@ from ntempvh.train._trainer_runtime_steps import (
 )
 
 
-
 def run_train_one_run(
     config: dict[str, Any],
     seed: int,
@@ -116,7 +115,12 @@ def run_train_one_run(
             "effective_batch_size": int(epoch_state["effective_batch_size"]),
             "seconds_elapsed": float(time.time() - started_at),
         })
-        print(f"ep {epoch:03d}: val_loss={val['val_loss']:.4f} val_acc={val['val_acc']:.4f} train_acc={train_acc_ep:.4f}")
+        print(
+            f"epoch {epoch:03d} | "
+            f"val_loss={val['val_loss']:.4f} "
+            f"val_acc={val['val_acc']:.4f} "
+            f"train_acc={train_acc_ep:.4f}"
+        )
 
         if settings.save_best and val["val_loss"] < best_val_loss:
             best_val_loss = float(val["val_loss"])

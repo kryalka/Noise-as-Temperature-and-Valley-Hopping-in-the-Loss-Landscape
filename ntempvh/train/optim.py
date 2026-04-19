@@ -1,9 +1,8 @@
 from __future__ import annotations
+
 import torch
 from torch import nn
 from torch.optim import Optimizer
-
-
 
 def make_optimizer(cfg: dict, model: nn.Module) -> Optimizer:
     opt_name = cfg.get("optimizer", "sgd").lower()
@@ -19,4 +18,4 @@ def make_optimizer(cfg: dict, model: nn.Module) -> Optimizer:
             weight_decay=wd,
             nesterov=bool(cfg.get("nesterov", True)),
         )
-    raise ValueError(f"Unknown optimizer: {opt_name}")
+    raise ValueError(f"unknown optimizer: {opt_name}")
