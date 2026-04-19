@@ -18,7 +18,7 @@ def reject_unknown_keys(name: str, mapping: dict[str, Any], allowed: Iterable[st
     allowed_set = set(allowed)
     unknown = sorted(str(key) for key in mapping.keys() if str(key) not in allowed_set)
     if unknown:
-        raise ValueError(f"Unknown keys in {name}: {', '.join(unknown)}")
+        raise ValueError(f"unknown keys in {name}: {', '.join(unknown)}")
 
 
 

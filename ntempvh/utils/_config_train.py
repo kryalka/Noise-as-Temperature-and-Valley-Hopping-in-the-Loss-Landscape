@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from ntempvh.data.cifar import get_supported_image_datasets
-from ntempvh.models.resnet_cifar import get_supported_model_names
+from ntempvh.data.image_classification import get_supported_image_datasets
+from ntempvh.models.factory import get_supported_model_names
 
-from ._config_core import coerce_float, coerce_int, ensure_mapping, reject_unknown_keys, require_bool, require_choice
+from ._config_core import (
+    coerce_float,
+    coerce_int,
+    ensure_mapping,
+    reject_unknown_keys,
+    require_bool,
+    require_choice,
+)
 from ._config_train_intervention import (
     normalize_variant_name,
     parse_window_spec,
@@ -16,12 +23,44 @@ _normalize_variant_name = normalize_variant_name
 _parse_window_spec = parse_window_spec
 
 
+def _require_component_name(
+    field_name: str,
+    value: Any,
+) -> str:
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{field_name} must be a non-empty string")
+    return text
+
+
+def _require_builder_path(
+    field_name: str,
+    value: Any,
+) -> str:
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{field_name} must be a non-empty import path")
+    return text
+
+
 def validate_train_grid_config(cfg: dict[str, Any] | None) -> None:
     cfg = ensure_mapping("train-grid config", cfg)
-    reject_unknown_keys("train-grid config", cfg, {
-        "base_config", "out_root", "seeds", "learning_rates", "batch_sizes", "config_overrides",
-        "intervention_variants", "intervention_windows", "intervention_lr_multipliers", "intervention_batch_sizes",
-    })
+    reject_unknown_keys(
+        "train-grid config",
+        cfg,
+        {
+            "base_config",
+            "out_root",
+            "seeds",
+            "learning_rates",
+            "batch_sizes",
+            "config_overrides",
+            "intervention_variants",
+            "intervention_windows",
+            "intervention_lr_multipliers",
+            "intervention_batch_sizes",
+        },
+    )
 
     if not str(cfg.get("base_config", "")).strip():
         raise ValueError("train-grid.base_config is required")
@@ -47,7 +86,41 @@ def validate_train_grid_config(cfg: dict[str, Any] | None) -> None:
         coerce_int(f"train-grid.batch_sizes[{idx}]", value, min_value=1)
 
     config_overrides = ensure_mapping("train-grid.config_overrides", cfg.get("config_overrides"))
-    reject_unknown_keys("train-grid.config_overrides", config_overrides, {"dataset", "model", "data_root", "data", "training", "logging", "intervention"})
+    reject_unknown_keys(
+        "train-grid.config_overrides",
+        config_overrides,
+        {
+            "dataset",
+            "dataset_builder",
+            "model",
+            "model_builder",
+            "data_root",
+            "data",
+            "training",
+            "logging",
+            "intervention",
+        },
+    )
+    if "dataset" in config_overrides:
+        _require_component_name(
+            "train-grid.config_overrides.dataset",
+            config_overrides.get("dataset"),
+        )
+    if "dataset_builder" in config_overrides:
+        _require_builder_path(
+            "train-grid.config_overrides.dataset_builder",
+            config_overrides.get("dataset_builder"),
+        )
+    if "model" in config_overrides:
+        _require_component_name(
+            "train-grid.config_overrides.model",
+            config_overrides.get("model"),
+        )
+    if "model_builder" in config_overrides:
+        _require_builder_path(
+            "train-grid.config_overrides.model_builder",
+            config_overrides.get("model_builder"),
+        )
     training_overrides = ensure_mapping("train-grid.config_overrides.training", config_overrides.get("training"))
     epochs_total = coerce_int("train-grid.config_overrides.training.epochs", training_overrides.get("epochs", 10**9), min_value=1)
 
@@ -104,9 +177,35 @@ def validate_train_grid_config(cfg: dict[str, Any] | None) -> None:
 
 def validate_train_config(cfg: dict[str, Any] | None) -> None:
     cfg = ensure_mapping("train config", cfg)
-    reject_unknown_keys("train config", cfg, {"dataset", "model", "data_root", "data", "training", "logging", "intervention"})
-    require_choice("train.dataset", cfg.get("dataset", "cifar10"), get_supported_image_datasets())
-    require_choice("train.model", cfg.get("model", "resnet18"), get_supported_model_names())
+    reject_unknown_keys(
+        "train config",
+        cfg,
+        {
+            "dataset",
+            "dataset_builder",
+            "model",
+            "model_builder",
+            "data_root",
+            "data",
+            "training",
+            "logging",
+            "intervention",
+        },
+    )
+
+    dataset_name = _require_component_name("train.dataset", cfg.get("dataset"))
+    dataset_builder = cfg.get("dataset_builder")
+    if dataset_builder not in (None, ""):
+        _require_builder_path("train.dataset_builder", dataset_builder)
+    else:
+        require_choice("train.dataset", dataset_name, get_supported_image_datasets())
+
+    model_name = _require_component_name("train.model", cfg.get("model"))
+    model_builder = cfg.get("model_builder")
+    if model_builder not in (None, ""):
+        _require_builder_path("train.model_builder", model_builder)
+    else:
+        require_choice("train.model", model_name, get_supported_model_names())
 
     data_cfg = ensure_mapping("train.data", cfg.get("data"))
     train_cfg = ensure_mapping("train.training", cfg.get("training"))
